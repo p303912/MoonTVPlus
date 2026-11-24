@@ -16,6 +16,7 @@ import { DownloadBubble } from '../components/DownloadBubble';
 import { DownloadPanel } from '../components/DownloadPanel';
 import { GlobalErrorIndicator } from '../components/GlobalErrorIndicator';
 import RouteScrollReset from '../components/RouteScrollReset';
+import { ServiceWorkerRegister } from '../components/ServiceWorkerRegister';
 import { SiteProvider } from '../components/SiteProvider';
 import { ThemeProvider } from '../components/ThemeProvider';
 import { TokenRefreshManager } from '../components/TokenRefreshManager';
@@ -448,6 +449,7 @@ export default async function RootLayout({
           disableTransitionOnChange
         >
           <TopProgressBar />
+          <ServiceWorkerRegister />
           <RouteScrollReset />
           <TokenRefreshManager />
           <SiteProvider

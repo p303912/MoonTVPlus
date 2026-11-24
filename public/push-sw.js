@@ -250,3 +250,91 @@ self.addEventListener('fetch', (event) => {
     })
   );
 });
+
+/* ---- App local cache: 把站的静态文件和页面壳子存到本地，下次打开直接读本地 ----
+ * Static assets: cache-first (they are hashed / immutable)
+ * Pages (navigations): stale-while-revalidate (serve cached instantly, refresh in background)
+ * Never cached: /api/* (dynamic data), non-GET, cross-origin, video-cache routes above
+ */
+const APP_CACHE_NAME = 'moontvplus-app-v1';
+const STATIC_CACHE_NAME = 'moontvplus-static-v1';
+
+function isStaticAssetPath(pathname) {
+  if (
+    pathname.startsWith('/_next/static/') ||
+    pathname.startsWith('/icons/') ||
+    pathname.startsWith('/assets/') ||
+    pathname.startsWith('/players/') ||
+    pathname.startsWith('/scripts/') ||
+    pathname.startsWith('/music/') ||
+    pathname.startsWith('/tvbox/') ||
+    pathname === '/favicon.ico' ||
+    pathname === '/logo.png' ||
+    pathname === '/robots.txt'
+  ) {
+    return true;
+  }
+  return /\.(?:js|css|woff2?|ttf|otf|png|jpg|jpeg|gif|webp|svg|ico)$/i.test(pathname);
+}
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    (async () => {
+      const keys = await caches.keys();
+      await Promise.all(
+        keys
+          .filter((key) => key !== APP_CACHE_NAME && key !== STATIC_CACHE_NAME)
+          .map((key) => caches.delete(key))
+      );
+    })()
+  );
+});
+
+self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url);
+
+  // Video-cache routes are handled by the earlier listener; never double-respond.
+  if (url.pathname.startsWith(`${IDB_VIDEO_ROUTE_PREFIX}/`)) return;
+  if (event.request.method !== 'GET') return;
+  if (url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith('/api/')) return;
+
+  // Static assets: cache-first.
+  if (isStaticAssetPath(url.pathname)) {
+    event.respondWith(
+      caches.open(STATIC_CACHE_NAME).then(async (cache) => {
+        const cached = await cache.match(event.request);
+        if (cached) return cached;
+        const response = await fetch(event.request);
+        if (response && response.ok) {
+          cache.put(event.request, response.clone());
+        }
+        return response;
+      })
+    );
+    return;
+  }
+
+  // Pages: stale-while-revalidate — instant from cache, refresh in background.
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      caches.open(APP_CACHE_NAME).then(async (cache) => {
+        const cached = await cache.match(event.request);
+        const networkPromise = fetch(event.request)
+          .then((response) => {
+            if (response && response.ok) {
+              cache.put(event.request, response.clone());
+            }
+            return response;
+          })
+          .catch(() => null);
+        if (cached) {
+          event.waitUntil(networkPromise);
+          return cached;
+        }
+        const response = await networkPromise;
+        return response || new Response('offline', { status: 503 });
+      })
+    );
+  }
+});
